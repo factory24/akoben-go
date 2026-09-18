@@ -149,6 +149,22 @@ func (p *PlatformClient) GetDevice(ctx context.Context, deviceID string) (*Platf
 	return &out, nil
 }
 
+// UpdatePlatformDeviceRequest changes a device. Empty fields are left
+// unchanged.
+type UpdatePlatformDeviceRequest struct {
+	Name          string `json:"name,omitempty"`
+	DeviceClassID string `json:"deviceClassId,omitempty"`
+}
+
+// UpdateDevice renames a device or moves it to another class on this network.
+func (p *PlatformClient) UpdateDevice(ctx context.Context, deviceID string, req UpdatePlatformDeviceRequest) (*PlatformDevice, error) {
+	var out PlatformDevice
+	if err := p.do(ctx, http.MethodPut, "/platform/devices/"+esc(deviceID), nil, req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 func (p *PlatformClient) ListDevices(ctx context.Context, page, pageSize int) (*PagedResult[Device], error) {
 	var out PagedResult[Device]
 	if err := p.do(ctx, http.MethodGet, "/platform/devices", pageQuery(page, pageSize), nil, &out); err != nil {
