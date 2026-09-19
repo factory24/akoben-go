@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -186,4 +187,31 @@ func TestClientCredentialsTokenSourceCachesUntilExpiry(t *testing.T) {
 	if calls != 1 {
 		t.Errorf("token endpoint called %d times, want 1", calls)
 	}
+}
+func decodeBody(t *testing.T, r *http.Request, out any) {
+	t.Helper()
+	if err := json.NewDecoder(r.Body).Decode(out); err != nil {
+		t.Fatalf("decoding request body: %v", err)
+	}
+}
+
+func writeEnvelopeErrors(w http.ResponseWriter, status int, errs ...string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(map[string]any{
+		"success": false, "timestamp": time.Now().Unix(),
+		"message": "request failed", "errors": errs,
+	})
+}
+
+func contains(haystack, needle string) bool { return strings.Contains(haystack, needle) }
+
+func newRecordingServer(t *testing.T, method, path, auth *string) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		*method, *path, *auth = r.Method, r.URL.Path, r.Header.Get("Authorization")
+		writeEnvelope(w, 200, nil)
+	}))
+	t.Cleanup(srv.Close)
+	return srv
 }

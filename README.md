@@ -71,10 +71,49 @@ dev, err = client.UpdateDevice(ctx, connectivity.UpdateDeviceRequest{
 })
 ```
 
-Surface: networks CRUD · device classes CRUD (incl. `commandDelivery`) · devices
-register/get/update/move/delete/list · device secret · named key references · access points
-register/get/update/delete · commands send/list/clear · activity · metrics and radio metrics ·
-payload inspection · applications · usage.
+### What `Client` reaches
+
+| Area | Methods |
+|---|---|
+| Networks | `CreateNetwork` `ListNetworks` `GetNetwork` `UpdateNetwork` `DeleteNetwork` `GetNetworkOverview` `GetNetworkApplication` |
+| Device classes | `CreateDeviceClass` `ListDeviceClasses` `UpdateDeviceClass` `DeleteDeviceClass` |
+| Devices | `RegisterDevice` `GetDevice` `GetDeviceState` `UpdateDevice` `DeleteDevice` `ListDevices` `SetDeviceSecret` |
+| Cellular gate | `DeviceAccess` `SetDeviceKey` `ClearDeviceKey` `EnableDevice` `DisableDevice` |
+| Diagnosis | `DeviceFrames` `DeviceLogs` `GetDeviceActivity` `GetDeviceMetrics` `GetDeviceRadioMetrics` `InspectPayload` |
+| Commands | `SendCommand` `ListPendingCommands` `ClearCommands` |
+| Access points | `RegisterAccessPoint` `ListAccessPoints` `GetAccessPoint` `UpdateAccessPoint` `DeleteAccessPoint` `GetAccessPointRadioMetrics` |
+| Keys | `CreateDeviceKey` `ListDeviceKeys` `RevokeDeviceKey` |
+| API keys | `CreateApiKey` `ListApiKeys` `RevokeApiKey` |
+| Destinations (integrations) | `CreateIntegration` `ListIntegrations` `UpdateIntegration` `DeleteIntegration` `TestIntegration` `Deliveries` `RetryDelivery` |
+| Your platforms | `ListDestinations` `CreateDestination` `UpdateDestination` `DeleteDestination` |
+| Watches | `CreateEventRule` `ListEventRules` `DeleteEventRule` `NetworkAlerts` |
+| Billing | `ListPlans` `GetSubscription` `ListInvoices` `ListCheckoutMethods` `GetUsage` |
+| Business | `GetOverview` `GetAuditLog` `ListApplications` `ListApplicationDevices` |
+
+`staff.go` holds the routes that need a platform-staff principal rather than a
+customer one (`ListUnclaimedDevices`, `StaffBillingSummary`, the plan and
+assignment calls). A customer token is refused there with 403.
+
+### Three shapes worth knowing before you call
+
+**Credentials are returned exactly once.** `CreateApiKey` is the only call that
+ever carries a `Token`; afterwards only its `Prefix` is readable. `SetDeviceKey`,
+`SetDeviceSecret` and a destination's `AuthSecret` have no read-back at all.
+
+**Two calls report failure with a `nil` error.** `TestIntegration` and
+`RetryDelivery` answer 200 whether or not the delivery landed: the call
+succeeded, the delivery is what failed. Branch on `res.Success`, not on `err`.
+
+```go
+res, err := client.TestIntegration(ctx, networkID, integrationID)
+if err != nil { return err }          // we could not ask
+if !res.Success { ... }               // we asked; your endpoint refused
+```
+
+**Paging backwards, not by page.** `DeviceFrames` and `DeviceLogs` take a
+`FrameQuery{Limit, Before}` and answer with `HasMore`. Do not re-derive the end
+of history by counting rows against your limit — a page is cut on a whole
+second, so a short page can still have history behind it.
 
 ## PlatformClient — one network's API key
 
@@ -87,9 +126,11 @@ dev, err := p.CreateDevice(ctx, connectivity.CreatePlatformDeviceRequest{
     DeviceClassID: classID, Key: deviceKeyHex, Enabled: true,
 })
 
+dev, err = p.UpdateDevice(ctx, dev.DeviceID, connectivity.UpdatePlatformDeviceRequest{Name: "Meter 5"})
+
 access, err := p.SetKey(ctx, dev.DeviceID, newKeyHex)   // no read-back
 access, err = p.Enable(ctx, dev.DeviceID)               // conflict names what is missing
-frames, err := p.Frames(ctx, dev.DeviceID, 50, time.Time{})
+frames, err := p.Frames(ctx, dev.DeviceID, connectivity.FrameQuery{Limit: 50})
 ```
 
 | Variable | Meaning |
@@ -130,6 +171,7 @@ branch on most (a conflict is e.g. a device with no active key, or a class still
   be fetched leaks through any read-only role. Hold your own copy if you need one.
 - **`GetUsage` takes no date range** — the endpoint always reports the current billing period.
 - **Messages are delivered, not polled.** There is no "list messages" call here.
+- **No `GetDeviceSecret`.** Same reason as the key: there is no read-back route.
 
 ## Releases
 

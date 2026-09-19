@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"time"
 )
 
 // PlatformClient manages devices on ONE network with that network's API key.
@@ -239,20 +238,11 @@ func (p *PlatformClient) ClearCommands(ctx context.Context, deviceID string) err
 	return p.do(ctx, http.MethodDelete, "/platform/devices/"+esc(deviceID)+"/commands", nil, nil, nil)
 }
 
-// Frames returns a cellular device's recent wire traffic, newest first.
-func (p *PlatformClient) Frames(ctx context.Context, deviceID string, limit int, before time.Time) ([]Frame, error) {
-	q := pageQuery(0, 0)
-	if limit > 0 {
-		q.Set("limit", fmt.Sprint(limit))
-	}
-	if !before.IsZero() {
-		q.Set("before", fmt.Sprint(before.Unix()))
-	}
-	var out struct {
-		Entries []Frame `json:"entries"`
-	}
-	if err := p.do(ctx, http.MethodGet, "/platform/devices/"+esc(deviceID)+"/frames", q, nil, &out); err != nil {
+// Frames returns a page of a cellular device's wire traffic, newest first.
+func (p *PlatformClient) Frames(ctx context.Context, deviceID string, q FrameQuery) (*FramePage, error) {
+	var out FramePage
+	if err := p.do(ctx, http.MethodGet, "/platform/devices/"+esc(deviceID)+"/frames", q.values(), nil, &out); err != nil {
 		return nil, err
 	}
-	return out.Entries, nil
+	return &out, nil
 }

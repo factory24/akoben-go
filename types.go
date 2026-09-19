@@ -277,10 +277,12 @@ type InspectResult struct {
 	Decoded          json.RawMessage `json:"decoded"`
 }
 
-// UsageMetric is one billed quantity in a usage summary.
+// UsageMetric is one billed quantity in a usage summary. Both values are
+// decimal strings, never floats — a quantity can be fractional (megabytes) and
+// money must not round.
 type UsageMetric struct {
-	Quantity int64  `json:"quantity"`
-	Amount   string `json:"amount"`
+	Quantity string `json:"quantity"`
+	Amount   string `json:"amount,omitempty"`
 }
 
 // UsageSummary is the current billing period to date. Money values are
@@ -294,4 +296,27 @@ type UsageSummary struct {
 	Currency       string                 `json:"currency"`
 	Unrated        []string               `json:"unrated"`
 	Capped         []string               `json:"capped"`
+}
+
+// LogEntry is one line of a device's transport log.
+type LogEntry struct {
+	ID         string            `json:"id,omitempty"`
+	At         int64             `json:"at"`
+	Kind       string            `json:"kind"`
+	Summary    string            `json:"summary"`
+	Body       string            `json:"body,omitempty"`
+	Properties map[string]string `json:"properties,omitempty"`
+}
+
+// LogPage is one page of a device's transport log.
+//
+// Sampled says the page is a live sample rather than stored history — the
+// low-power bearer keeps none. An empty sampled page means nothing arrived
+// while we listened, NOT that the device has never spoken; a reader that
+// cannot tell those apart shows a talking device as silent.
+type LogPage struct {
+	Entries       []LogEntry `json:"entries"`
+	HasMore       bool       `json:"hasMore"`
+	Sampled       bool       `json:"sampled,omitempty"`
+	WindowSeconds int        `json:"windowSeconds,omitempty"`
 }

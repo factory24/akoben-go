@@ -1,0 +1,23 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+      - run: go build ./...
+      - run: go vet ./...
+      - run: go test -race -cover ./...
+      - name: the package depends on nothing but the standard library
+        run: |
+          deps=$(go list -deps . | grep -v '^github.com/factory24/akoben-go' | grep '\.' || true)
+          if [ -n "$deps" ]; then echo "external dependencies appeared:"; echo "$deps"; exit 1; fi
