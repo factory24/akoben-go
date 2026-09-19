@@ -17,7 +17,11 @@ jobs:
       - run: go build ./...
       - run: go vet ./...
       - run: go test -race -cover ./...
+      # Standard-library packages report no module, and the stdlib's own
+      # vendored golang.org/x copies are packages, not modules — so this asks
+      # about modules, not import paths.
       - name: the package depends on nothing but the standard library
         run: |
-          deps=$(go list -deps . | grep -v '^github.com/factory24/akoben-go' | grep '\.' || true)
-          if [ -n "$deps" ]; then echo "external dependencies appeared:"; echo "$deps"; exit 1; fi
+          mods=$(go list -deps -f '{{with .Module}}{{.Path}}{{end}}' ./... |
+                 sort -u | grep -v '^github.com/factory24/akoben-go$' | grep -v '^$' || true)
+          if [ -n "$mods" ]; then echo "external modules appeared:"; echo "$mods"; exit 1; fi
