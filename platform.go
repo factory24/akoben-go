@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // PlatformClient manages devices on ONE network with that network's API key.
@@ -28,25 +29,26 @@ func NewPlatform(baseURL, apiKey string, opts ...Option) *PlatformClient {
 }
 
 // NewPlatformFromEnv reads one network's integration from the environment.
-// network names the key: "CELLULAR" reads CONNECTIVITY.CELLULAR.API_KEY and
-// CONNECTIVITY.CELLULAR.NETWORK_ID.
+// network names the key: "CELLULAR" reads AKOBEN.CELLULAR.API_KEY and
+// AKOBEN.CELLULAR.NETWORK_ID.
 //
-//	CONNECTIVITY.BASE_URL            API root, e.g. https://api.example.com/v1
-//	CONNECTIVITY.BUSINESS_ID         the tenant the key belongs to (checked, not sent)
-//	CONNECTIVITY.<NETWORK>.API_KEY   the network's API key
-//	CONNECTIVITY.<NETWORK>.NETWORK_ID the network the key is for (checked on first use)
+//	AKOBEN.BASE_URL            API root, e.g. https://api.example.com/v1
+//	AKOBEN.BUSINESS_ID         the tenant the key belongs to (checked, not sent)
+//	AKOBEN.<NETWORK>.API_KEY   the network's API key
+//	AKOBEN.<NETWORK>.NETWORK_ID the network the key is for (checked on first use)
 //
-// Underscored spellings (CONNECTIVITY_CELLULAR_API_KEY, ...) are accepted too.
+// Underscored spellings (AKOBEN_CELLULAR_API_KEY, ...) are accepted too, and so
+// is the old CONNECTIVITY prefix.
 func NewPlatformFromEnv(network string) (*PlatformClient, error) {
 	n := strings.ToUpper(network)
-	baseURL := envAny("CONNECTIVITY.BASE_URL", "CONNECTIVITY_BASE_URL")
-	key := envAny("CONNECTIVITY."+n+".API_KEY", "CONNECTIVITY_"+n+"_API_KEY")
+	baseURL := env("BASE_URL")
+	key := env(n + ".API_KEY")
 	if baseURL == "" || key == "" {
-		return nil, fmt.Errorf("connectivity: set CONNECTIVITY.BASE_URL and CONNECTIVITY.%s.API_KEY", n)
+		return nil, fmt.Errorf("connectivity: set AKOBEN.BASE_URL and AKOBEN.%s.API_KEY", n)
 	}
 	p := NewPlatform(baseURL, key)
-	p.networkID = envAny("CONNECTIVITY."+n+".NETWORK_ID", "CONNECTIVITY_"+n+"_NETWORK_ID")
-	p.businessID = envAny("CONNECTIVITY.BUSINESS_ID", "CONNECTIVITY_BUSINESS_ID")
+	p.networkID = env(n + ".NETWORK_ID")
+	p.businessID = env("BUSINESS_ID")
 	return p, nil
 }
 
@@ -89,10 +91,14 @@ type CreatePlatformDeviceRequest struct {
 	Name          string `json:"name"`
 	DeviceClassID string `json:"deviceClassId"`
 	// Key is the device's AES-128 key, 32 hex characters. On cellular it is
-	// sealed and checked against every frame; on the low-power bearer it is the
-	// device secret it authenticates with.
+	// checked against every frame; on the low-power bearer it is the device
+	// secret it authenticates with. Stored as given, and returned by nothing.
 	Key     string `json:"key,omitempty"`
 	Enabled bool   `json:"enabled"`
+	// Where the device is and what it is for — the same fields the operator
+	// client's RegisterDevice takes.
+	Description string    `json:"description,omitempty"`
+	Location    *Location `json:"location,omitempty"`
 }
 
 // Frame is one frame on a cellular device's wire. Keepalives are sampled; every
@@ -153,6 +159,9 @@ func (p *PlatformClient) GetDevice(ctx context.Context, deviceID string) (*Platf
 type UpdatePlatformDeviceRequest struct {
 	Name          string `json:"name,omitempty"`
 	DeviceClassID string `json:"deviceClassId,omitempty"`
+	// A nil Location leaves the stored one alone.
+	Description string    `json:"description,omitempty"`
+	Location    *Location `json:"location,omitempty"`
 }
 
 // UpdateDevice renames a device or moves it to another class on this network.
@@ -218,6 +227,12 @@ func (p *PlatformClient) QueueCommand(ctx context.Context, deviceID string, payl
 	body := map[string]any{"payloadHex": hex.EncodeToString(payload), "confirmed": opts.Confirmed}
 	if opts.Port > 0 {
 		body["port"] = opts.Port
+	}
+	if opts.Reference != "" {
+		body["reference"] = opts.Reference
+	}
+	if opts.ExpiresIn > 0 {
+		body["expiresInSeconds"] = int(opts.ExpiresIn / time.Second)
 	}
 	var out struct {
 		ID string `json:"id"`

@@ -35,6 +35,22 @@ type PagedResult[T any] struct {
 	PageSize      int   `json:"pageSize"`
 }
 
+// Location is where a device is installed, in plain degrees.
+//
+// A device that has not been placed has no location at all, which is why it
+// is a pointer everywhere it appears: 0, 0 is a real coordinate, and sending
+// it for "unknown" puts the device on the map in the Gulf of Guinea.
+type Location struct {
+	Latitude  float64 `json:"latitude"`
+	Longitude float64 `json:"longitude"`
+}
+
+// At returns a Location for the given degrees, so a caller with two floats
+// does not need a named variable to take the address of.
+func At(latitude, longitude float64) *Location {
+	return &Location{Latitude: latitude, Longitude: longitude}
+}
+
 // Device is a connected hardware unit.
 type Device struct {
 	ID              string      `json:"id"`
@@ -50,6 +66,10 @@ type Device struct {
 	SignalDBm       *int        `json:"signalDbm"`
 	AccessPointID   string      `json:"accessPointId"`
 	CreatedAt       *UnixTime   `json:"createdAt"`
+	// Description is what the device is for, as you set it.
+	Description string `json:"description,omitempty"`
+	// Location is where it is installed, absent until it is placed.
+	Location *Location `json:"location,omitempty"`
 }
 
 // RegisterDeviceRequest creates a device on a network.
@@ -58,6 +78,11 @@ type RegisterDeviceRequest struct {
 	DeviceID      string `json:"deviceId"`
 	Name          string `json:"name"`
 	DeviceClassID string `json:"deviceClassId,omitempty"`
+	// Description is what the device is for; Location is where it is
+	// installed. Both optional — a device registered from a warehouse has
+	// neither until it is installed.
+	Description string    `json:"description,omitempty"`
+	Location    *Location `json:"location,omitempty"`
 }
 
 // UpdateDeviceRequest changes a device. Zero-valued fields are left unchanged.
@@ -68,6 +93,10 @@ type UpdateDeviceRequest struct {
 	Name          string `json:"name,omitempty"`
 	DeviceClassID string `json:"deviceClassId,omitempty"`
 	NetworkID     string `json:"networkId,omitempty"`
+	// A nil Location leaves the stored one alone, as an empty Name does: a
+	// device is placed once and updated for many other reasons.
+	Description string    `json:"description,omitempty"`
+	Location    *Location `json:"location,omitempty"`
 }
 
 // ListDevicesRequest filters and pages a device listing. A zero value lists
@@ -229,6 +258,7 @@ type Command struct {
 	QueuedAt  *UnixTime       `json:"queuedAt"`
 	ExpiresAt *UnixTime       `json:"expiresAt"`
 	Reason    string          `json:"reason"`
+	Reference string          `json:"reference,omitempty"`
 	Delivery  CommandDelivery `json:"delivery"`
 }
 
@@ -239,6 +269,14 @@ type CommandOptions struct {
 	Port int
 	// Confirmed asks the device to acknowledge receipt.
 	Confirmed bool
+	// Reference is your own id for the command, at most 120 characters. It
+	// is echoed on the pending list and on every command.* event, so a
+	// consumer can match command.sent to its own record without a lookup.
+	Reference string
+	// ExpiresIn retires a cellular command that has not gone out by then,
+	// with a command.failed event (60s to 30 days). Zero waits for the
+	// device however long it takes.
+	ExpiresIn time.Duration
 }
 
 // DeviceKey is a named credential reference. The platform stores a reference

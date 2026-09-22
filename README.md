@@ -40,13 +40,13 @@ client, err := connectivity.NewFromEnv()
 
 | Variable | Meaning |
 |---|---|
-| `CONNECTIVITY.BASE_URL` | API root including `/v1` (required) |
-| `CONNECTIVITY.API_TOKEN` | static bearer token, **or** the three below |
-| `CONNECTIVITY.TOKEN_URL` | OpenID token endpoint (client-credentials grant) |
-| `CONNECTIVITY.CLIENT_ID` / `CONNECTIVITY.CLIENT_SECRET` | the service account |
-| `CONNECTIVITY.BUSINESS_ID` | only for staff principals acting for one business |
+| `AKOBEN.BASE_URL` | API root including `/v1` (required) |
+| `AKOBEN.API_TOKEN` | static bearer token, **or** the three below |
+| `AKOBEN.TOKEN_URL` | OpenID token endpoint (client-credentials grant) |
+| `AKOBEN.CLIENT_ID` / `AKOBEN.CLIENT_SECRET` | the service account |
+| `AKOBEN.BUSINESS_ID` | only for staff principals acting for one business |
 
-Underscored spellings (`CONNECTIVITY_BASE_URL`) work too. `connectivity.NewDisabled(reason)`
+Underscored spellings (`AKOBEN_BASE_URL`) work too. `connectivity.NewDisabled(reason)`
 returns a client whose every call fails with that reason — wire it unconditionally and let
 unconfigured environments degrade per call instead of failing at boot.
 
@@ -84,7 +84,7 @@ dev, err = client.UpdateDevice(ctx, connectivity.UpdateDeviceRequest{
 | Access points | `RegisterAccessPoint` `ListAccessPoints` `GetAccessPoint` `UpdateAccessPoint` `DeleteAccessPoint` `GetAccessPointRadioMetrics` |
 | Keys | `CreateDeviceKey` `ListDeviceKeys` `RevokeDeviceKey` |
 | API keys | `CreateApiKey` `ListApiKeys` `RevokeApiKey` |
-| Destinations (integrations) | `CreateIntegration` `ListIntegrations` `UpdateIntegration` `DeleteIntegration` `TestIntegration` `Deliveries` `RetryDelivery` |
+| Destinations (integrations) | `CreateIntegration` `ListIntegrations` `UpdateIntegration` `DeleteIntegration` `TestIntegration` `Deliveries` `RetryDelivery` · `DecodeMessage` for a queue consumer |
 | Your platforms | `ListDestinations` `CreateDestination` `UpdateDestination` `DeleteDestination` |
 | Watches | `CreateEventRule` `ListEventRules` `DeleteEventRule` `NetworkAlerts` |
 | Billing | `ListPlans` `GetSubscription` `ListInvoices` `ListCheckoutMethods` `GetUsage` |
@@ -98,7 +98,8 @@ assignment calls). A customer token is refused there with 403.
 
 **Credentials are returned exactly once.** `CreateApiKey` is the only call that
 ever carries a `Token`; afterwards only its `Prefix` is readable. `SetDeviceKey`,
-`SetDeviceSecret` and a destination's `AuthSecret` have no read-back at all.
+`SetDeviceSecret`, a destination's `AuthSecret` and a queue destination's `Token`
+have no read-back at all.
 
 **Two calls report failure with a `nil` error.** `TestIntegration` and
 `RetryDelivery` answer 200 whether or not the delivery landed: the call
@@ -118,7 +119,7 @@ second, so a short page can still have history behind it.
 ## PlatformClient — one network's API key
 
 ```go
-p, err := connectivity.NewPlatformFromEnv("CELLULAR")   // CONNECTIVITY.CELLULAR.API_KEY
+p, err := connectivity.NewPlatformFromEnv("CELLULAR")   // AKOBEN.CELLULAR.API_KEY
 net, err := p.Network(ctx)                              // fails loudly if the key is for another network
 
 dev, err := p.CreateDevice(ctx, connectivity.CreatePlatformDeviceRequest{
@@ -135,10 +136,10 @@ frames, err := p.Frames(ctx, dev.DeviceID, connectivity.FrameQuery{Limit: 50})
 
 | Variable | Meaning |
 |---|---|
-| `CONNECTIVITY.BASE_URL` | API root including `/v1` |
-| `CONNECTIVITY.<NETWORK>.API_KEY` | the network's API key |
-| `CONNECTIVITY.<NETWORK>.NETWORK_ID` | checked on first use, so a key in the wrong variable fails loudly |
-| `CONNECTIVITY.BUSINESS_ID` | checked, not sent |
+| `AKOBEN.BASE_URL` | API root including `/v1` |
+| `AKOBEN.<NETWORK>.API_KEY` | the network's API key |
+| `AKOBEN.<NETWORK>.NETWORK_ID` | checked on first use, so a key in the wrong variable fails loudly |
+| `AKOBEN.BUSINESS_ID` | checked, not sent |
 
 ## Receiving messages
 
@@ -158,6 +159,43 @@ http.Handle("/connectivity/messages", connectivity.MessageHandler(
 On the cellular bearer the `Reply` is written back on the socket the device is holding open. An
 error from your handler answers 500, and the reading is then recorded on our side as received but
 not accepted by you.
+
+On the low-power bearer a `Message` also carries `Sequence` (the device's own message counter) and
+`AccessPoints` (every access point that heard it, strongest first, with `RSSI` and `SNR`).
+
+## Receiving from a queue
+
+A network's destination can be a broker topic instead of, or as well as, an endpoint
+(`IntegrationQueue`). Both bearers are delivered there — a cellular device with a queue destination
+and no platform is answered from its command queue alone.
+
+```go
+in, err := client.CreateIntegration(ctx, networkID, connectivity.IntegrationQueue, connectivity.QueueConfig{
+    BrokerURL: "pulsar+ssl://broker.example:6651", Topic: "persistent://public/default/uplinks",
+    Token: brokerToken,                       // write-only, kept on updates that omit it
+    Envelope: connectivity.EnvelopeEvent,     // {topic, eventType, timestamp, payload}
+    EventType: "uplink.cellular",             // what a MESSAGE is typed as; events carry their own
+}.Config())
+
+// In your consumer, whatever the destination publishes:
+ev, err := connectivity.DecodeMessage(msg.Payload())
+switch ev.Kind {
+case connectivity.KindMessage: store(ev.Message)
+case connectivity.KindCommand: markSent(ev.Command.Reference, ev.Command.Event) // command.queued/sent/failed/retracted
+case connectivity.KindAlert:   page(ev.Alert)                                    // device.quiet, device.recovered, ...
+}
+```
+
+`Integration.Backlog` is how many deliveries are waiting to be retried: a destination that was
+down is caught up automatically, in order, once it answers. `Integration.HasSecret` says a token or
+`AuthSecret` is stored, since `Config` never carries one back.
+
+### Command events
+
+A command you queue with `CommandOptions{Reference: yourID}` is echoed as `Reference` on the pending
+list and on every `command.*` event on the network's destinations, so `command.sent` can be matched
+to your own record without a lookup table. On cellular, `command.sent` is emitted the moment the
+command is written to the device's socket in place of the platform's answer.
 
 ## Errors
 

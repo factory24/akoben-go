@@ -19,9 +19,9 @@ func TestPlatformClientSendsTheKeyAndChecksItsNetwork(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	t.Setenv("CONNECTIVITY.BASE_URL", srv.URL+"/v1")
-	t.Setenv("CONNECTIVITY.CELLULAR.API_KEY", "k-123")
-	t.Setenv("CONNECTIVITY.CELLULAR.NETWORK_ID", "net-mine")
+	t.Setenv("AKOBEN.BASE_URL", srv.URL+"/v1")
+	t.Setenv("AKOBEN.CELLULAR.API_KEY", "k-123")
+	t.Setenv("AKOBEN.CELLULAR.NETWORK_ID", "net-mine")
 	p, err := NewPlatformFromEnv("cellular")
 	if err != nil {
 		t.Fatal(err)

@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/http"
+	"time"
 )
 
 // SendCommand queues an opaque payload for delivery to a device and returns
@@ -21,6 +22,12 @@ func (c *Client) SendCommand(ctx context.Context, deviceID string, payload []byt
 	}
 	if opts.Port > 0 {
 		body["port"] = opts.Port
+	}
+	if opts.Reference != "" {
+		body["reference"] = opts.Reference
+	}
+	if opts.ExpiresIn > 0 {
+		body["expiresInSeconds"] = int(opts.ExpiresIn / time.Second)
 	}
 	var out struct {
 		CommandID string `json:"commandId"`

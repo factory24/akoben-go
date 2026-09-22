@@ -23,6 +23,20 @@ type Message struct {
 	// Port and SignalDBm are set on the low-power bearer only.
 	Port      int
 	SignalDBm *int
+	// Sequence is the device's own message counter, on the low-power bearer,
+	// for a receiver that keeps per-message history. Nil where there is none.
+	Sequence *int
+	// AccessPoints lists every access point that heard the message, strongest
+	// first, on the low-power bearer. SignalDBm is the first one's.
+	AccessPoints []AccessPointReport
+}
+
+// AccessPointReport is one access point's reception of a message.
+type AccessPointReport struct {
+	// ID is the accessPointId the access point was registered with.
+	ID   string  `json:"id"`
+	RSSI int     `json:"rssi"`
+	SNR  float64 `json:"snr"`
 }
 
 // Reply is what a cellular device is sent back on the socket it is holding
@@ -39,14 +53,16 @@ type Reply struct {
 type MessageFunc func(ctx context.Context, up Message) (*Reply, error)
 
 type messageWire struct {
-	DeviceID   string `json:"deviceId"`
-	NetworkID  string `json:"networkId"`
-	Bearer     Bearer `json:"bearer"`
-	ReceivedAt int64  `json:"receivedAt"`
-	PayloadHex string `json:"payloadHex"`
-	PayloadB64 string `json:"payload"`
-	Port       int    `json:"port"`
-	SignalDBm  *int   `json:"signalDbm"`
+	DeviceID     string              `json:"deviceId"`
+	NetworkID    string              `json:"networkId"`
+	Bearer       Bearer              `json:"bearer"`
+	ReceivedAt   int64               `json:"receivedAt"`
+	PayloadHex   string              `json:"payloadHex"`
+	PayloadB64   string              `json:"payload"`
+	Port         int                 `json:"port"`
+	SignalDBm    *int                `json:"signalDbm"`
+	Sequence     *int                `json:"sequence"`
+	AccessPoints []AccessPointReport `json:"accessPoints"`
 }
 
 // MessageHandler is the endpoint you register as your platform's URL. It
@@ -94,6 +110,7 @@ func (in messageWire) message() (Message, error) {
 	up := Message{
 		DeviceID: in.DeviceID, NetworkID: in.NetworkID, Bearer: in.Bearer,
 		ReceivedAt: time.Unix(in.ReceivedAt, 0).UTC(), Port: in.Port, SignalDBm: in.SignalDBm,
+		Sequence: in.Sequence, AccessPoints: in.AccessPoints,
 	}
 	var err error
 	switch {

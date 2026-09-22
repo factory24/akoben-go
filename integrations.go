@@ -58,13 +58,19 @@ const (
 // Config never carries "authSecret" back: it is redacted on every read, and on
 // the write that sets it.
 type Integration struct {
-	ID             string          `json:"id"`
-	ApplicationID  string          `json:"applicationId"`
-	Kind           IntegrationKind `json:"kind"`
-	Enabled        bool            `json:"enabled"`
-	Config         map[string]any  `json:"config"`
-	LastDeliveryAt *int64          `json:"lastDeliveryAt"`
-	LastError      string          `json:"lastError,omitempty"`
+	ID            string          `json:"id"`
+	ApplicationID string          `json:"applicationId"`
+	Kind          IntegrationKind `json:"kind"`
+	Enabled       bool            `json:"enabled"`
+	Config        map[string]any  `json:"config"`
+	// HasSecret says a write-only credential (authSecret, token) is stored,
+	// since Config never carries it back.
+	HasSecret      bool   `json:"hasSecret"`
+	LastDeliveryAt *int64 `json:"lastDeliveryAt"`
+	LastError      string `json:"lastError,omitempty"`
+	// Backlog is how many deliveries are waiting to be retried: a destination
+	// that was down is caught up automatically, in order, once it answers.
+	Backlog int64 `json:"backlog"`
 }
 
 // HTTPConfig is the configuration of an IntegrationHTTP destination.
@@ -90,15 +96,56 @@ func (h HTTPConfig) Config() map[string]any {
 	return cfg
 }
 
+// Envelope is the shape a queue destination publishes.
+type Envelope string
+
+const (
+	// EnvelopeMessage publishes the bare object: the message, or the event.
+	EnvelopeMessage Envelope = "message"
+	// EnvelopeEvent wraps every publish as {topic, eventType, timestamp,
+	// payload}, for a consumer that already routes on an event type.
+	EnvelopeEvent Envelope = "event"
+)
+
 // QueueConfig is the configuration of an IntegrationQueue destination.
 type QueueConfig struct {
+	// BrokerURL is pulsar://host:6650, or pulsar+ssl://host:6651 for TLS.
 	BrokerURL string
 	Topic     string
+	// Token authenticates the platform to your broker. Write-only: it is
+	// never read back, and an update that omits it keeps the stored one.
+	Token string
+	// TLSTrustPEM is the CA bundle your broker's certificate chains to; empty
+	// trusts the system roots.
+	TLSTrustPEM string
+	// TLSAllowInsecure accepts a broker certificate that does not verify.
+	TLSAllowInsecure bool
+	// Envelope is EnvelopeMessage (the default) or EnvelopeEvent.
+	Envelope Envelope
+	// EventType is the eventType a MESSAGE carries under EnvelopeEvent, e.g.
+	// "uplink.cellular"; lifecycle events carry their own (command.sent, ...).
+	EventType string
 }
 
 // Config renders the destination as the API expects it.
 func (q QueueConfig) Config() map[string]any {
-	return map[string]any{"brokerUrl": q.BrokerURL, "topic": q.Topic}
+	cfg := map[string]any{"brokerUrl": q.BrokerURL, "topic": q.Topic}
+	if q.Token != "" {
+		cfg["token"] = q.Token
+	}
+	if q.TLSTrustPEM != "" {
+		cfg["tlsTrustPem"] = q.TLSTrustPEM
+	}
+	if q.TLSAllowInsecure {
+		cfg["tlsAllowInsecure"] = true
+	}
+	if q.Envelope != "" {
+		cfg["envelope"] = string(q.Envelope)
+	}
+	if q.EventType != "" {
+		cfg["eventType"] = q.EventType
+	}
+	return cfg
 }
 
 // CreateIntegration adds a destination to a network. It is enabled on
