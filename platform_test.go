@@ -92,3 +92,62 @@ func TestMessageHandlerRefusesEverythingWithoutASecret(t *testing.T) {
 		t.Errorf("answered %d, want 401", rec.Code)
 	}
 }
+
+// A platform has to be able to name itself on a device it is creating: with
+// more than one platform on a business, a device that says nothing takes the
+// business default, which may not be the one provisioning it. The field was
+// honoured by the API and absent from the SDK, so the one caller that most
+// needs it — a platform's own client — could not send it.
+func TestPlatformDeviceRequestsCarryTheRoutingPlatform(t *testing.T) {
+	create, err := json.Marshal(CreatePlatformDeviceRequest{
+		DeviceID: "68753699000001", Name: "meter", DeviceClassID: "c1", PlatformID: "p1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(create), `"platformId":"p1"`) {
+		t.Fatalf("create request dropped the platform: %s", create)
+	}
+	update, err := json.Marshal(UpdatePlatformDeviceRequest{PlatformID: "p2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(update), `"platformId":"p2"`) {
+		t.Fatalf("update request dropped the platform: %s", update)
+	}
+	// Omitted must stay absent, or every rename would reroute the device to "".
+	plain, err := json.Marshal(UpdatePlatformDeviceRequest{Name: "renamed"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(plain), "platformId") {
+		t.Fatalf("an omitted platform was sent anyway: %s", plain)
+	}
+}
+
+func TestPlatformClientRegistersAnAccessPointOnItsKeysNetwork(t *testing.T) {
+	var gotAuth, gotMethod, gotPath string
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth, gotMethod, gotPath = r.Header.Get("Authorization"), r.Method, r.URL.Path
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		_, _ = io.WriteString(w, `{"success":true,"data":{"accessPointId":"54d0b4fffe45a496","networkId":"net-1"}}`)
+	}))
+	defer srv.Close()
+
+	ap, err := NewPlatform(srv.URL+"/v1", "k-lpwan").RegisterAccessPoint(context.Background(), RegisterAccessPointRequest{
+		NetworkID: "ignored", AccessPointID: "54D0B4FFFE45A496", Name: "Kibera North", ReportEverySeconds: 30,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotAuth != "Bearer k-lpwan" || gotMethod != http.MethodPost || gotPath != "/v1/platform/access-points" {
+		t.Errorf("sent auth=%q %s %s", gotAuth, gotMethod, gotPath)
+	}
+	if _, named := gotBody["networkId"]; named || gotBody["accessPointId"] != "54D0B4FFFE45A496" {
+		t.Errorf("body %v: the key decides the network, and the id goes as given", gotBody)
+	}
+	if ap.NetworkID != "net-1" {
+		t.Errorf("reply not decoded: %+v", ap)
+	}
+}

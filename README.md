@@ -132,6 +132,12 @@ dev, err = p.UpdateDevice(ctx, dev.DeviceID, connectivity.UpdatePlatformDeviceRe
 access, err := p.SetKey(ctx, dev.DeviceID, newKeyHex)   // no read-back
 access, err = p.Enable(ctx, dev.DeviceID)               // conflict names what is missing
 frames, err := p.Frames(ctx, dev.DeviceID, connectivity.FrameQuery{Limit: 50})
+
+// Low-power networks: registers, or updates if already there. The key decides the network.
+ap, err := p.RegisterAccessPoint(ctx, connectivity.RegisterAccessPointRequest{
+    AccessPointID: "54d0b4fffe45a496", Name: "Kibera North",
+})
+aps, err := p.AccessPoints(ctx)
 ```
 
 | Variable | Meaning |

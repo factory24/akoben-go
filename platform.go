@@ -90,6 +90,12 @@ type CreatePlatformDeviceRequest struct {
 	DeviceID      string `json:"deviceId"`
 	Name          string `json:"name"`
 	DeviceClassID string `json:"deviceClassId"`
+	// PlatformID routes this device to a platform other than the business
+	// default. Empty takes the default, which is what a single-platform
+	// customer wants — but a deployment with more than one needs to say, and
+	// until now a platform's own API could not name itself on a device it was
+	// creating.
+	PlatformID string `json:"platformId,omitempty"`
 	// Key is the device's AES-128 key, 32 hex characters. On cellular it is
 	// checked against every frame; on the low-power bearer it is the device
 	// secret it authenticates with. Stored as given, and returned by nothing.
@@ -159,12 +165,15 @@ func (p *PlatformClient) GetDevice(ctx context.Context, deviceID string) (*Platf
 type UpdatePlatformDeviceRequest struct {
 	Name          string `json:"name,omitempty"`
 	DeviceClassID string `json:"deviceClassId,omitempty"`
+	// PlatformID reroutes the device. Empty leaves its routing alone.
+	PlatformID string `json:"platformId,omitempty"`
 	// A nil Location leaves the stored one alone.
 	Description string    `json:"description,omitempty"`
 	Location    *Location `json:"location,omitempty"`
 }
 
-// UpdateDevice renames a device or moves it to another class on this network.
+// UpdateDevice renames a device, moves it to another class, or reroutes it
+// to a different platform on this network.
 func (p *PlatformClient) UpdateDevice(ctx context.Context, deviceID string, req UpdatePlatformDeviceRequest) (*PlatformDevice, error) {
 	var out PlatformDevice
 	if err := p.do(ctx, http.MethodPut, "/platform/devices/"+esc(deviceID), nil, req, &out); err != nil {
@@ -260,4 +269,22 @@ func (p *PlatformClient) Frames(ctx context.Context, deviceID string, q FrameQue
 		return nil, err
 	}
 	return &out, nil
+}
+
+// RegisterAccessPoint registers an access point on the key's own network, or
+// updates it when it is already registered, so a fleet service can call it on
+// every pass. req.NetworkID is ignored: the key decides the network.
+func (p *PlatformClient) RegisterAccessPoint(ctx context.Context, req RegisterAccessPointRequest) (*AccessPoint, error) {
+	var out AccessPoint
+	if err := p.do(ctx, http.MethodPost, "/platform/access-points", nil, req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// AccessPoints lists the access points on the key's network.
+func (p *PlatformClient) AccessPoints(ctx context.Context) ([]AccessPoint, error) {
+	var out []AccessPoint
+	err := p.do(ctx, http.MethodGet, "/platform/access-points", nil, nil, &out)
+	return out, err
 }
